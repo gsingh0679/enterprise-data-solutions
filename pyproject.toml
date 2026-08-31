@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "enterprise-data-solutions"
+version = "0.1.0"
+description = "Enterprise Data Solutions - Phase 1 MVP"
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [
+    {name = "Gurneet Singh", email = "gsingh0679@gmail.com"},
+]
+
+dependencies = [
+    "pydantic>=2.0",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "flake8>=5.0",
+    "mypy>=1.0",
+    "black>=23.0",
+]
+
+[tool.setuptools]
+packages = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = ["--strict-markers", "--tb=short"]
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+ignore_missing_imports = true
+
+[tool.black]
+line-length = 100
+target-version = ["py39"]
