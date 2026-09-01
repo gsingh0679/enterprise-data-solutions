@@ -12,8 +12,19 @@ This module provides reusable pytest fixtures for:
 import pytest
 
 from src.config import ConfigManager, PlatformConfig
+from src.masking_engine import MaskingEngine, MaskingStrategy
 from src.quality_validator import CircuitBreaker, QualityValidator
 from src.schema_registry import Schema, SchemaRegistry
+
+
+@pytest.fixture
+def masking_engine():
+    """Provide a fresh MaskingEngine instance for testing.
+
+    Returns:
+        MaskingEngine: Engine instance for masking records
+    """
+    return MaskingEngine()
 
 
 @pytest.fixture
@@ -73,6 +84,31 @@ def circuit_breaker():
         CircuitBreaker: Breaker with standard threshold
     """
     return CircuitBreaker(threshold=0.95)
+
+
+@pytest.fixture
+def masking_schema():
+    """Provide a schema with masking strategies for testing.
+
+    Returns:
+        Schema: Banking schema with PII masking configuration
+    """
+    return Schema(
+        schema_id="banking_v1",
+        name="Banking",
+        version="1.0",
+        fields={
+            "customer_id": {"type": "string", "sensitive": False},
+            "email": {"type": "string", "sensitive": True, "masking_strategy": "hash"},
+            "ssn": {"type": "string", "sensitive": True, "masking_strategy": "redact"},
+            "credit_card": {
+                "type": "string",
+                "sensitive": True,
+                "masking_strategy": "tokenize",
+            },
+        },
+        description="Banking schema with PII masking",
+    )
 
 
 @pytest.fixture
