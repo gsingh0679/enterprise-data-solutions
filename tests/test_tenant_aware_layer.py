@@ -8,7 +8,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from src.config import ConnectorConfig
-from src.tenant_aware_layer import TenantAwareRouter
+from src.platform.tenant_aware_layer import TenantAwareRouter
 from src.errors import ConnectionError, TenantAccessError, ValidationError
 
 
@@ -50,6 +50,30 @@ def postgres_config():
     )
 
 
+@pytest.fixture
+def mock_s3_connector():
+    """Create mock S3Connector with required attributes."""
+    mock = MagicMock()
+    mock._client = MagicMock()
+    mock.connect = MagicMock()
+    mock.close = MagicMock()
+    mock.read = MagicMock(return_value=[])
+    mock.write = MagicMock(return_value={})
+    return mock
+
+
+@pytest.fixture
+def mock_postgres_connector():
+    """Create mock PostgreSQL connector with required attributes."""
+    mock = MagicMock()
+    mock._client = MagicMock()
+    mock.connect = MagicMock()
+    mock.close = MagicMock()
+    mock.read = MagicMock(return_value=[])
+    mock.write = MagicMock(return_value={})
+    return mock
+
+
 class TestRouterSingleton:
     """Test TenantAwareRouter singleton pattern."""
 
@@ -76,45 +100,48 @@ class TestRouterSingleton:
 class TestConnectorGetAndPooling:
     """Test connector retrieval and pooling."""
 
-    def test_get_connector_creates_new(self, router, s3_config):
+    def test_get_connector_creates_new(self, router, s3_config, mock_s3_connector):
         """Test get_connector creates new connector."""
-        with patch("src.tenant_aware_layer.S3Connector") as mock_s3_class:
-            mock_connector = MagicMock()
-            mock_s3_class.return_value = mock_connector
+        mock_s3_class = MagicMock(return_value=mock_s3_connector)
+        router.CONNECTOR_CLASSES["s3"] = mock_s3_class
 
-            result = router.get_connector("s3", "tenant_1", s3_config)
-            assert result is mock_connector
-            mock_connector.connect.assert_called_once()
+        result = router.get_connector("s3", "tenant_1", s3_config)
+        assert result is mock_s3_connector
+        mock_s3_connector.connect.assert_called_once()
 
-    def test_get_connector_returns_pooled(self, router, s3_config):
+    def test_get_connector_returns_pooled(self, router, s3_config, mock_s3_connector):
         """Test get_connector returns pooled connector."""
-        with patch("src.tenant_aware_layer.S3Connector") as mock_s3_class:
-            mock_connector = MagicMock()
-            mock_s3_class.return_value = mock_connector
+        mock_s3_class = MagicMock(return_value=mock_s3_connector)
+        router.CONNECTOR_CLASSES["s3"] = mock_s3_class
 
-            conn1 = router.get_connector("s3", "tenant_1", s3_config)
-            conn2 = router.get_connector("s3", "tenant_1", s3_config)
+        conn1 = router.get_connector("s3", "tenant_1", s3_config)
+        conn2 = router.get_connector("s3", "tenant_1", s3_config)
 
-            assert conn1 is conn2
-            # Should only be called once (cached)
-            assert mock_s3_class.call_count == 1
+        assert conn1 is conn2
+        # Should only be called once (cached)
+        assert mock_s3_class.call_count == 1
 
     def test_get_connector_separate_pools_per_tenant(self, router, s3_config):
         """Test separate connector pools per tenant."""
-        with patch("src.tenant_aware_layer.S3Connector") as mock_s3_class:
-            mock_s3_class.side_effect = [MagicMock(), MagicMock()]
+        mock_conn1 = MagicMock()
+        mock_conn1._client = MagicMock()
+        mock_conn2 = MagicMock()
+        mock_conn2._client = MagicMock()
 
-            conn1 = router.get_connector("s3", "tenant_1", s3_config)
+        mock_s3_class = MagicMock(side_effect=[mock_conn1, mock_conn2])
+        router.CONNECTOR_CLASSES["s3"] = mock_s3_class
 
-            config2 = ConnectorConfig(
-                connector_type="s3",
-                tenant_id="tenant_2",
-                credentials=s3_config.credentials,
-                metadata=s3_config.metadata,
-            )
-            conn2 = router.get_connector("s3", "tenant_2", config2)
+        conn1 = router.get_connector("s3", "tenant_1", s3_config)
 
-            assert conn1 is not conn2
+        config2 = ConnectorConfig(
+            connector_type="s3",
+            tenant_id="tenant_2",
+            credentials=s3_config.credentials,
+            metadata=s3_config.metadata,
+        )
+        conn2 = router.get_connector("s3", "tenant_2", config2)
+
+        assert conn1 is not conn2
 
     def test_get_connector_unsupported_type(self, router, s3_config):
         """Test get_connector rejects unsupported type."""
@@ -189,7 +216,7 @@ class TestConnectionLifecycle:
 
     def test_close_tenant_connections(self, router, s3_config):
         """Test close_tenant_connections closes all connectors."""
-        with patch("src.tenant_aware_layer.S3Connector") as mock_s3_class:
+        with patch("src.platform.tenant_aware_layer.S3Connector") as mock_s3_class:
             mock_connector = MagicMock()
             mock_s3_class.return_value = mock_connector
 
@@ -202,8 +229,8 @@ class TestConnectionLifecycle:
 
     def test_close_all_connections(self, router, s3_config, postgres_config):
         """Test close_all_connections closes all tenant connections."""
-        with patch("src.tenant_aware_layer.S3Connector") as mock_s3_class:
-            with patch("src.tenant_aware_layer.PostgreSQLConnector") as mock_pg_class:
+        with patch("src.platform.tenant_aware_layer.S3Connector") as mock_s3_class:
+            with patch("src.platform.tenant_aware_layer.PostgreSQLConnector") as mock_pg_class:
                 mock_s3 = MagicMock()
                 mock_pg = MagicMock()
                 mock_s3_class.return_value = mock_s3
@@ -242,7 +269,7 @@ class TestAuditLogging:
 
     def test_audit_log_on_connector_creation(self, router, s3_config):
         """Test audit log records connector creation."""
-        with patch("src.tenant_aware_layer.S3Connector") as mock_s3_class:
+        with patch("src.platform.tenant_aware_layer.S3Connector") as mock_s3_class:
             mock_connector = MagicMock()
             mock_s3_class.return_value = mock_connector
 
@@ -286,7 +313,7 @@ class TestErrorHandling:
 
     def test_connector_creation_error_propagation(self, router, s3_config):
         """Test connector creation errors propagate."""
-        with patch("src.tenant_aware_layer.S3Connector") as mock_s3_class:
+        with patch("src.platform.tenant_aware_layer.S3Connector") as mock_s3_class:
             mock_s3_class.side_effect = Exception("Connection failed")
 
             with pytest.raises(ConnectionError) as exc_info:
@@ -323,7 +350,7 @@ class TestMultiConnectorRouting:
 
     def test_route_to_s3(self, router, s3_config):
         """Test routing to S3 connector."""
-        with patch("src.tenant_aware_layer.S3Connector") as mock_s3:
+        with patch("src.platform.tenant_aware_layer.S3Connector") as mock_s3:
             mock_connector = MagicMock()
             mock_s3.return_value = mock_connector
 
@@ -332,7 +359,7 @@ class TestMultiConnectorRouting:
 
     def test_route_to_postgresql(self, router, postgres_config):
         """Test routing to PostgreSQL connector."""
-        with patch("src.tenant_aware_layer.PostgreSQLConnector") as mock_pg:
+        with patch("src.platform.tenant_aware_layer.PostgreSQLConnector") as mock_pg:
             mock_connector = MagicMock()
             mock_pg.return_value = mock_connector
 
@@ -341,8 +368,8 @@ class TestMultiConnectorRouting:
 
     def test_route_multiple_connectors_per_tenant(self, router, s3_config, postgres_config):
         """Test tenant can have multiple connector types pooled."""
-        with patch("src.tenant_aware_layer.S3Connector") as mock_s3:
-            with patch("src.tenant_aware_layer.PostgreSQLConnector") as mock_pg:
+        with patch("src.platform.tenant_aware_layer.S3Connector") as mock_s3:
+            with patch("src.platform.tenant_aware_layer.PostgreSQLConnector") as mock_pg:
                 mock_s3.return_value = MagicMock()
                 mock_pg.return_value = MagicMock()
 
@@ -359,7 +386,7 @@ class TestCrossTenantisolation:
 
     def test_tenant_cannot_access_other_tenant_connectors(self, router, s3_config):
         """Test tenant_1 cannot access tenant_2's connector."""
-        with patch("src.tenant_aware_layer.S3Connector") as mock_s3:
+        with patch("src.platform.tenant_aware_layer.S3Connector") as mock_s3:
             mock_s3.return_value = MagicMock()
 
             # tenant_1 creates connector
@@ -485,7 +512,7 @@ class TestPoolManagement:
 
     def test_pool_grows_with_new_tenants(self, router, s3_config):
         """Test pool grows as new tenants are added."""
-        with patch("src.tenant_aware_layer.S3Connector") as mock_s3:
+        with patch("src.platform.tenant_aware_layer.S3Connector") as mock_s3:
             mock_s3.side_effect = [MagicMock(), MagicMock(), MagicMock()]
 
             # Add first tenant
@@ -514,7 +541,7 @@ class TestPoolManagement:
 
     def test_pool_cleanup_removes_tenant_data(self, router, s3_config):
         """Test cleanup removes tenant from pool."""
-        with patch("src.tenant_aware_layer.S3Connector") as mock_s3:
+        with patch("src.platform.tenant_aware_layer.S3Connector") as mock_s3:
             mock_conn = MagicMock()
             mock_s3.return_value = mock_conn
 
@@ -527,7 +554,7 @@ class TestPoolManagement:
 
     def test_pool_cleanup_resilient_to_close_errors(self, router, s3_config):
         """Test pool cleanup continues despite close errors."""
-        with patch("src.tenant_aware_layer.S3Connector") as mock_s3:
+        with patch("src.platform.tenant_aware_layer.S3Connector") as mock_s3:
             mock_conn = MagicMock()
             mock_conn.close.side_effect = Exception("Close failed")
             mock_s3.return_value = mock_conn
@@ -540,8 +567,8 @@ class TestPoolManagement:
 
     def test_multiple_connector_types_in_pool(self, router, s3_config, postgres_config):
         """Test pool holds multiple connector types per tenant."""
-        with patch("src.tenant_aware_layer.S3Connector") as mock_s3:
-            with patch("src.tenant_aware_layer.PostgreSQLConnector") as mock_pg:
+        with patch("src.platform.tenant_aware_layer.S3Connector") as mock_s3:
+            with patch("src.platform.tenant_aware_layer.PostgreSQLConnector") as mock_pg:
                 mock_s3.return_value = MagicMock()
                 mock_pg.return_value = MagicMock()
 
@@ -581,7 +608,7 @@ class TestConnectorCreationFailures:
 
     def test_creation_failure_wrapped_in_connection_error(self, router, s3_config):
         """Test creation failures are wrapped in ConnectionError."""
-        with patch("src.tenant_aware_layer.S3Connector") as mock_s3_class:
+        with patch("src.platform.tenant_aware_layer.S3Connector") as mock_s3_class:
             mock_s3_class.side_effect = Exception("SDK error")
 
             with pytest.raises(ConnectionError) as exc_info:
@@ -591,7 +618,7 @@ class TestConnectorCreationFailures:
 
     def test_connection_error_includes_tenant_context(self, router, s3_config):
         """Test ConnectionError includes tenant and connector context."""
-        with patch("src.tenant_aware_layer.S3Connector") as mock_s3_class:
+        with patch("src.platform.tenant_aware_layer.S3Connector") as mock_s3_class:
             mock_s3_class.side_effect = Exception("Network error")
 
             with pytest.raises(ConnectionError) as exc_info:
@@ -635,8 +662,8 @@ class TestCompleteDataflow:
 
     def test_multi_tenant_multi_connector_workflow(self, router, s3_config, postgres_config):
         """Test complete workflow with multiple tenants and connectors."""
-        with patch("src.tenant_aware_layer.S3Connector") as mock_s3:
-            with patch("src.tenant_aware_layer.PostgreSQLConnector") as mock_pg:
+        with patch("src.platform.tenant_aware_layer.S3Connector") as mock_s3:
+            with patch("src.platform.tenant_aware_layer.PostgreSQLConnector") as mock_pg:
                 s3_1 = MagicMock()
                 s3_2 = MagicMock()
                 pg_1 = MagicMock()
@@ -667,7 +694,7 @@ class TestCompleteDataflow:
 
     def test_sequential_tenant_operations(self, router, s3_config):
         """Test sequential operations from different tenants."""
-        with patch("src.tenant_aware_layer.S3Connector") as mock_s3:
+        with patch("src.platform.tenant_aware_layer.S3Connector") as mock_s3:
             mock_s3.side_effect = [MagicMock(), MagicMock()]
 
             # Tenant 1 reads
@@ -735,7 +762,7 @@ class TestTenantValidation:
 
     def test_valid_tenant_id_accepted(self, router, s3_config):
         """Test valid tenant_id is accepted."""
-        with patch("src.tenant_aware_layer.S3Connector"):
+        with patch("src.platform.tenant_aware_layer.S3Connector"):
             # Should not raise
             router.get_connector("s3", "tenant-123_valid", s3_config)
 
