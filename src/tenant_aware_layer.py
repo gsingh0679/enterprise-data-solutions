@@ -327,6 +327,7 @@ class TenantAwareRouter:
                 tenant_id=tenant_id or "UNKNOWN",
                 details={"resource": resource, "reason": "empty_tenant_id"},
                 status="FAILURE",
+                error_message="tenant_id required",
             )
             raise TenantAccessError(
                 "tenant_id required",
@@ -340,6 +341,7 @@ class TenantAwareRouter:
                 tenant_id="INVALID_TYPE",
                 details={"resource": resource, "reason": "invalid_type"},
                 status="FAILURE",
+                error_message=f"tenant_id must be string, got {type(tenant_id).__name__}",
             )
             raise TenantAccessError(
                 f"tenant_id must be string, got {type(tenant_id).__name__}",
@@ -353,6 +355,7 @@ class TenantAwareRouter:
                 tenant_id=tenant_id,
                 details={"resource": resource, "reason": "tenant_id_too_long"},
                 status="FAILURE",
+                error_message=f"tenant_id too long: {len(tenant_id)} > 255",
             )
             raise TenantAccessError(
                 f"tenant_id too long: {len(tenant_id)} > 255",
@@ -366,6 +369,7 @@ class TenantAwareRouter:
                 tenant_id=tenant_id,
                 details={"resource": resource, "reason": "invalid_characters"},
                 status="FAILURE",
+                error_message=f"tenant_id contains invalid characters: {tenant_id!r}",
             )
             raise TenantAccessError(
                 f"tenant_id contains invalid characters: {tenant_id!r}",
