@@ -523,11 +523,18 @@ class PubSubConnector(DataSourceConnector):
                         for message in client.pull_iter(
                             request={"subscription": sub_name, "max_messages": 1}
                         ):
-                            yield {
-                                "message_id": message.ack_id,
-                                "data": message.message.data,
-                                "publish_time": message.message.publish_time,
-                            }
+                            try:
+                                yield {
+                                    "message_id": message.ack_id,
+                                    "data": message.message.data,
+                                    "publish_time": message.message.publish_time,
+                                }
+                                if hasattr(message, "ack"):
+                                    message.ack()
+                            except Exception:
+                                if hasattr(message, "nack"):
+                                    message.nack()
+                                raise
                     except Exception:
                         pass
                     finally:
