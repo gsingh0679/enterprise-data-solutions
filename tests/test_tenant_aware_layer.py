@@ -603,25 +603,25 @@ class TestConnectorCreationFailures:
 
     def test_creation_failure_wrapped_in_connection_error(self, router, s3_config):
         """Test creation failures are wrapped in ConnectionError."""
-        with patch("src.platform.tenant_aware_layer.S3Connector") as mock_s3_class:
-            mock_s3_class.side_effect = Exception("SDK error")
+        mock_s3_class = MagicMock(side_effect=Exception("SDK error"))
+        router.CONNECTOR_CLASSES["s3"] = mock_s3_class
 
-            with pytest.raises(ConnectionError) as exc_info:
-                router.get_connector("s3", "tenant_1", s3_config)
+        with pytest.raises(ConnectionError) as exc_info:
+            router.get_connector("s3", "tenant_1", s3_config)
 
-            assert "SDK error" in str(exc_info.value)
+        assert "SDK error" in str(exc_info.value)
 
     def test_connection_error_includes_tenant_context(self, router, s3_config):
         """Test ConnectionError includes tenant and connector context."""
-        with patch("src.platform.tenant_aware_layer.S3Connector") as mock_s3_class:
-            mock_s3_class.side_effect = Exception("Network error")
+        mock_s3_class = MagicMock(side_effect=Exception("Network error"))
+        router.CONNECTOR_CLASSES["s3"] = mock_s3_class
 
-            with pytest.raises(ConnectionError) as exc_info:
-                router.get_connector("s3", "tenant_1", s3_config)
+        with pytest.raises(ConnectionError) as exc_info:
+            router.get_connector("s3", "tenant_1", s3_config)
 
-            error = exc_info.value
-            assert "tenant_1" in str(error) or hasattr(error, 'tenant_id')
-            assert "s3" in str(error) or hasattr(error, 'connector_type')
+        error = exc_info.value
+        assert "tenant_1" in str(error) or hasattr(error, 'tenant_id')
+        assert "s3" in str(error) or hasattr(error, 'connector_type')
 
 
 class TestOperationFailurePropagation:
