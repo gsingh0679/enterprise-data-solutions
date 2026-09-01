@@ -319,13 +319,39 @@ class S3Connector(StorageConnector):
         return {"success": True}
 
     def close(self) -> None:
-        """Close S3 connections."""
+        """Close S3 connections and cleanup pool."""
         try:
-            self._client_pool.clear()
+            if self._client and hasattr(self._client, 'close'):
+                self._client.close()
+                logger.debug(f"Closed S3 client for {self.tenant_id}")
+        except Exception as e:
+            logger.warning(f"Error closing S3 client: {e}")
+
+        try:
+            tenant_id = self.tenant_id
+            keys_to_remove = [k for k in self._client_pool.keys()
+                            if k.startswith(tenant_id)]
+
+            for key in keys_to_remove:
+                client = self._client_pool[key]
+                try:
+                    if hasattr(client, 'close'):
+                        client.close()
+                except Exception as e:
+                    logger.warning(f"Error closing pooled S3 client {key}: {e}")
+
+                del self._client_pool[key]
+
+            if keys_to_remove:
+                logger.debug(f"Cleared {len(keys_to_remove)} S3 pool entries")
+
+        except Exception as e:
+            logger.error(f"Error clearing S3 pool: {e}")
+
+        finally:
+            self._client = None
             self._is_connected = False
             logger.info(f"S3 connection closed: tenant_id={self.tenant_id}")
-        except Exception as e:
-            logger.error(f"Error closing S3 connection: {e}")
 
     def read_object(self, path: str, tenant_id: str) -> bytes:
         """Read object from S3.
@@ -590,13 +616,39 @@ class GCSConnector(StorageConnector):
         return {"success": True}
 
     def close(self) -> None:
-        """Close GCS connections."""
+        """Close GCS connections and cleanup pool."""
         try:
-            self._client_pool.clear()
+            if self._client and hasattr(self._client, 'close'):
+                self._client.close()
+                logger.debug(f"Closed GCS client for {self.tenant_id}")
+        except Exception as e:
+            logger.warning(f"Error closing GCS client: {e}")
+
+        try:
+            tenant_id = self.tenant_id
+            keys_to_remove = [k for k in self._client_pool.keys()
+                            if k.startswith(tenant_id)]
+
+            for key in keys_to_remove:
+                client = self._client_pool[key]
+                try:
+                    if hasattr(client, 'close'):
+                        client.close()
+                except Exception as e:
+                    logger.warning(f"Error closing pooled GCS client {key}: {e}")
+
+                del self._client_pool[key]
+
+            if keys_to_remove:
+                logger.debug(f"Cleared {len(keys_to_remove)} GCS pool entries")
+
+        except Exception as e:
+            logger.error(f"Error clearing GCS pool: {e}")
+
+        finally:
+            self._client = None
             self._is_connected = False
             logger.info(f"GCS connection closed: tenant_id={self.tenant_id}")
-        except Exception as e:
-            logger.error(f"Error closing GCS connection: {e}")
 
     def read_object(self, path: str, tenant_id: str) -> bytes:
         """Read object from GCS.
@@ -863,13 +915,39 @@ class ADLSConnector(StorageConnector):
         return {"success": True}
 
     def close(self) -> None:
-        """Close ADLS connections."""
+        """Close ADLS connections and cleanup pool."""
         try:
-            self._client_pool.clear()
+            if self._client and hasattr(self._client, 'close'):
+                self._client.close()
+                logger.debug(f"Closed ADLS client for {self.tenant_id}")
+        except Exception as e:
+            logger.warning(f"Error closing ADLS client: {e}")
+
+        try:
+            tenant_id = self.tenant_id
+            keys_to_remove = [k for k in self._client_pool.keys()
+                            if k.startswith(tenant_id)]
+
+            for key in keys_to_remove:
+                client = self._client_pool[key]
+                try:
+                    if hasattr(client, 'close'):
+                        client.close()
+                except Exception as e:
+                    logger.warning(f"Error closing pooled ADLS client {key}: {e}")
+
+                del self._client_pool[key]
+
+            if keys_to_remove:
+                logger.debug(f"Cleared {len(keys_to_remove)} ADLS pool entries")
+
+        except Exception as e:
+            logger.error(f"Error clearing ADLS pool: {e}")
+
+        finally:
+            self._client = None
             self._is_connected = False
             logger.info(f"ADLS connection closed: tenant_id={self.tenant_id}")
-        except Exception as e:
-            logger.error(f"Error closing ADLS connection: {e}")
 
     def read_object(self, path: str, tenant_id: str) -> bytes:
         """Read object from ADLS.

@@ -904,3 +904,65 @@ class TestPoolKeyCollision:
         assert parts[0] == "tenant_1"
         assert parts[1] == "us-east-1"  # From s3_config fixture
         assert len(parts[2]) == 8  # MD5 hash, truncated to 8 chars
+
+
+class TestPoolCleanup:
+    """Test pool cleanup on close()."""
+
+    def test_s3_close_clears_pool(self, s3_connector):
+        """S3: close() removes entries from pool."""
+        s3_connector.connect()
+        assert len(s3_connector._client_pool) > 0
+
+        s3_connector.close()
+        assert len(s3_connector._client_pool) == 0
+        assert s3_connector._is_connected is False
+
+    def test_s3_reconnect_creates_new_pool_entry(self, s3_connector):
+        """S3: Reconnect after close() creates new pool entry."""
+        s3_connector.connect()
+        first_pool_size = len(s3_connector._client_pool)
+        assert first_pool_size > 0
+
+        s3_connector.close()
+        assert len(s3_connector._client_pool) == 0
+
+        # Reconnect should create new pool entry
+        s3_connector.connect()
+        second_pool_size = len(s3_connector._client_pool)
+        assert second_pool_size > 0
+
+    def test_s3_close_clears_multiple_pool_entries(self, s3_config):
+        """S3: close() cleans up all pool entries for tenant."""
+        s3 = S3Connector(s3_config)
+
+        # Manually populate pool with multiple entries for tenant_1
+        mock_client_1 = MagicMock()
+        mock_client_2 = MagicMock()
+        s3._client_pool["tenant_1:region1:hash123"] = mock_client_1
+        s3._client_pool["tenant_1:region2:hash456"] = mock_client_2
+
+        # Close should clean all tenant_1 entries
+        s3.close()
+        assert len(s3._client_pool) == 0
+        # Verify close was called on both mock clients
+        mock_client_1.close.assert_called()
+        mock_client_2.close.assert_called()
+
+    def test_gcs_close_clears_pool(self, gcs_connector):
+        """GCS: close() removes entries from pool."""
+        gcs_connector.connect()
+        assert len(gcs_connector._client_pool) > 0
+
+        gcs_connector.close()
+        assert len(gcs_connector._client_pool) == 0
+        assert gcs_connector._is_connected is False
+
+    def test_adls_close_clears_pool(self, adls_connector):
+        """ADLS: close() removes entries from pool."""
+        adls_connector.connect()
+        assert len(adls_connector._client_pool) > 0
+
+        adls_connector.close()
+        assert len(adls_connector._client_pool) == 0
+        assert adls_connector._is_connected is False
