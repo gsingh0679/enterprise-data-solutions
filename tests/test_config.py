@@ -12,7 +12,7 @@ from unittest import mock
 
 import pytest
 
-from src.config import ConfigManager, PlatformConfig
+from src.config import ConfigManager, PlatformConfig, VaultConfig
 
 
 class TestPlatformConfig:
@@ -23,12 +23,16 @@ class TestPlatformConfig:
         config = PlatformConfig()
         assert config.app_env == "local"
         assert config.storage_path == "./data"
+        assert isinstance(config.vault_config, VaultConfig)
+        assert config.vault_config.provider == "mock"
+        assert config.vault_config.ttl_seconds is None
 
     def test_init_with_custom_values(self):
         """Test PlatformConfig initialization with custom values."""
         config = PlatformConfig(app_env="dev", storage_path="/var/data")
         assert config.app_env == "dev"
         assert config.storage_path == "/var/data"
+        assert isinstance(config.vault_config, VaultConfig)
 
     def test_immutability(self):
         """Test that frozen PlatformConfig cannot be modified."""
@@ -41,6 +45,12 @@ class TestPlatformConfig:
         config = PlatformConfig()
         with pytest.raises(Exception):  # FrozenInstanceError
             config.storage_path = "/new/path"
+
+    def test_immutability_vault_config(self):
+        """Test that frozen PlatformConfig vault_config cannot be modified."""
+        config = PlatformConfig()
+        with pytest.raises(Exception):  # FrozenInstanceError
+            config.vault_config = VaultConfig(provider="aws_secrets")
 
     def test_validate_empty_app_env(self):
         """Test validation fails with empty app_env."""
@@ -234,3 +244,64 @@ class TestConfigManager:
 
         with pytest.raises(Exception):  # FrozenInstanceError
             config.app_env = "modified"
+
+
+class TestVaultConfig:
+    """Test suite for VaultConfig dataclass."""
+
+    def test_vault_config_defaults(self):
+        """Test VaultConfig initialization with default values."""
+        vault_config = VaultConfig()
+        assert vault_config.provider == "mock"
+        assert vault_config.ttl_seconds is None
+
+    def test_vault_config_with_ttl(self):
+        """Test VaultConfig initialization with TTL."""
+        vault_config = VaultConfig(provider="mock", ttl_seconds=3600)
+        assert vault_config.provider == "mock"
+        assert vault_config.ttl_seconds == 3600
+
+    def test_vault_config_aws_provider(self):
+        """Test VaultConfig with AWS provider."""
+        vault_config = VaultConfig(provider="aws_secrets")
+        assert vault_config.provider == "aws_secrets"
+
+    def test_vault_config_hashicorp_provider(self):
+        """Test VaultConfig with HashiCorp provider."""
+        vault_config = VaultConfig(provider="hashicorp")
+        assert vault_config.provider == "hashicorp"
+
+    def test_vault_config_invalid_provider(self):
+        """Test VaultConfig validation fails with invalid provider."""
+        with pytest.raises(ValueError, match="provider must be one of"):
+            VaultConfig(provider="invalid_provider")
+
+    def test_vault_config_negative_ttl(self):
+        """Test VaultConfig validation fails with negative TTL."""
+        with pytest.raises(ValueError, match="ttl_seconds must be non-negative"):
+            VaultConfig(provider="mock", ttl_seconds=-1)
+
+    def test_vault_config_non_int_ttl(self):
+        """Test VaultConfig validation fails with non-integer TTL."""
+        with pytest.raises(ValueError, match="ttl_seconds must be int or None"):
+            VaultConfig(provider="mock", ttl_seconds="3600")  # type: ignore
+
+    def test_vault_config_zero_ttl(self):
+        """Test VaultConfig accepts zero TTL."""
+        vault_config = VaultConfig(provider="mock", ttl_seconds=0)
+        assert vault_config.ttl_seconds == 0
+
+    def test_vault_config_immutability(self):
+        """Test that frozen VaultConfig cannot be modified."""
+        vault_config = VaultConfig()
+        with pytest.raises(Exception):  # FrozenInstanceError
+            vault_config.provider = "aws_secrets"
+
+    def test_platform_config_with_custom_vault_config(self):
+        """Test PlatformConfig with custom VaultConfig."""
+        vault_config = VaultConfig(provider="aws_secrets", ttl_seconds=7200)
+        config = PlatformConfig(
+            app_env="prod", storage_path="/data", vault_config=vault_config
+        )
+        assert config.vault_config.provider == "aws_secrets"
+        assert config.vault_config.ttl_seconds == 7200

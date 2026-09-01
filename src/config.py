@@ -17,6 +17,65 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
+class VaultConfig:
+    """Immutable vault configuration for token storage.
+
+    This dataclass holds configuration for the vault service used by the
+    masking engine for token management.
+
+    Attributes:
+        provider (str): Vault provider type ("mock", "aws_secrets", "hashicorp").
+            Defaults to "mock" (Phase 1 in-memory implementation).
+        ttl_seconds (int): Time-to-live for tokens in seconds. None means no expiry.
+            Defaults to None.
+
+    Raises:
+        ValueError: If validation fails during initialization.
+    """
+
+    provider: str = "mock"
+    ttl_seconds: Optional[int] = None
+
+    def __post_init__(self) -> None:
+        """Validate configuration after initialization.
+
+        Raises:
+            ValueError: If any field fails validation.
+        """
+        self.validate()
+
+    def validate(self) -> None:
+        """Validate configuration invariants.
+
+        Raises:
+            ValueError: If provider is invalid or ttl_seconds is negative.
+        """
+        valid_providers = ["mock", "aws_secrets", "hashicorp"]
+
+        if not self.provider or self.provider not in valid_providers:
+            raise ValueError(
+                f"provider must be one of {valid_providers}, "
+                f"got {self.provider!r}"
+            )
+
+        if self.ttl_seconds is not None:
+            if not isinstance(self.ttl_seconds, int):
+                raise ValueError(
+                    f"ttl_seconds must be int or None, "
+                    f"got {type(self.ttl_seconds).__name__}"
+                )
+            if self.ttl_seconds < 0:
+                raise ValueError(
+                    f"ttl_seconds must be non-negative, got {self.ttl_seconds}"
+                )
+
+        logger.debug(
+            f"VaultConfig validated: provider={self.provider}, "
+            f"ttl_seconds={self.ttl_seconds}"
+        )
+
+
+@dataclass(frozen=True)
 class PlatformConfig:
     """Immutable platform configuration.
 
@@ -27,6 +86,8 @@ class PlatformConfig:
         app_env (str): Application environment (e.g., "local", "dev", "prod").
             Defaults to "local".
         storage_path (str): Path to data storage directory. Defaults to "./data".
+        vault_config (VaultConfig): Vault configuration for token storage.
+            Defaults to MockVault provider with no TTL.
 
     Raises:
         ValueError: If validation fails during initialization.
@@ -34,17 +95,16 @@ class PlatformConfig:
 
     app_env: str = "local"
     storage_path: str = "./data"
+    vault_config: VaultConfig = None  # type: ignore
 
     def __post_init__(self) -> None:
-        """Validate configuration after initialization.
-
-        This method is called automatically by the dataclass after all fields
-        are set. It validates the configuration and raises ValueError if any
-        field is invalid.
+        """Set default VaultConfig and validate configuration.
 
         Raises:
             ValueError: If any field fails validation.
         """
+        if self.vault_config is None:
+            object.__setattr__(self, "vault_config", VaultConfig())
         self.validate()
 
     def validate(self) -> None:
@@ -54,8 +114,7 @@ class PlatformConfig:
         ValueError with descriptive messages if validation fails.
 
         Raises:
-            ValueError: If app_env is empty, storage_path is empty, or if
-                app_env contains invalid characters.
+            ValueError: If any field fails validation.
         """
         if not self.app_env or not isinstance(self.app_env, str):
             raise ValueError(
@@ -68,6 +127,12 @@ class PlatformConfig:
                 f"got {self.storage_path!r}"
             )
 
+        if not isinstance(self.vault_config, VaultConfig):
+            raise ValueError(
+                f"vault_config must be VaultConfig instance, "
+                f"got {type(self.vault_config).__name__}"
+            )
+
         # Validate app_env contains only alphanumeric and underscore
         if not all(c.isalnum() or c == "_" for c in self.app_env):
             raise ValueError(
@@ -77,7 +142,8 @@ class PlatformConfig:
 
         logger.info(
             f"Configuration validated: app_env={self.app_env}, "
-            f"storage_path={self.storage_path}"
+            f"storage_path={self.storage_path}, "
+            f"vault_provider={self.vault_config.provider}"
         )
 
 
