@@ -827,3 +827,80 @@ class TestPathTraversalPrevention:
         with pytest.raises(ValidationError) as exc_info:
             adls_connector.delete_object("/admin/file", "tenant_1")
         assert "/" in str(exc_info.value)
+
+
+class TestPoolKeyCollision:
+    """Test pool key generation to prevent credential/region collisions."""
+
+    def test_pool_key_includes_region(self, s3_config):
+        """Different regions get different pool keys."""
+        config_us_east = ConnectorConfig(
+            connector_type="s3",
+            tenant_id="tenant_1",
+            credentials=s3_config.credentials,
+            metadata={"region": "us-east-1", "bucket_name": "test-bucket"},
+        )
+        config_us_west = ConnectorConfig(
+            connector_type="s3",
+            tenant_id="tenant_1",
+            credentials=s3_config.credentials,
+            metadata={"region": "us-west-2", "bucket_name": "test-bucket"},
+        )
+
+        s3_east = S3Connector(config_us_east)
+        s3_west = S3Connector(config_us_west)
+
+        # Get pool keys
+        key_east = s3_east._get_pool_key("tenant_1")
+        key_west = s3_west._get_pool_key("tenant_1")
+
+        # Should be different due to different regions
+        assert key_east != key_west
+        assert "us-east-1" in key_east
+        assert "us-west-2" in key_west
+
+    def test_pool_key_includes_credential_hash(self, s3_config):
+        """Credential rotation triggers different pool keys."""
+        config_v1 = ConnectorConfig(
+            connector_type="s3",
+            tenant_id="tenant_1",
+            credentials={"aws_access_key_id": "KEY1", "aws_secret_access_key": "SECRET1"},
+            metadata={"region": "us-east-1", "bucket_name": "test-bucket"},
+        )
+        config_v2 = ConnectorConfig(
+            connector_type="s3",
+            tenant_id="tenant_1",
+            credentials={"aws_access_key_id": "KEY2", "aws_secret_access_key": "SECRET2"},
+            metadata={"region": "us-east-1", "bucket_name": "test-bucket"},
+        )
+
+        s3_v1 = S3Connector(config_v1)
+        s3_v2 = S3Connector(config_v2)
+
+        key_v1 = s3_v1._get_pool_key("tenant_1")
+        key_v2 = s3_v2._get_pool_key("tenant_1")
+
+        # Should be different due to different credentials
+        assert key_v1 != key_v2
+
+    def test_same_config_produces_same_pool_key(self, s3_config):
+        """Same region/credentials produce same pool key."""
+        s3_a = S3Connector(s3_config)
+        s3_b = S3Connector(s3_config)
+
+        key_a = s3_a._get_pool_key("tenant_1")
+        key_b = s3_b._get_pool_key("tenant_1")
+
+        # Should be identical
+        assert key_a == key_b
+
+    def test_pool_key_format(self, s3_config):
+        """Pool key has correct format: tenant_id:region:hash."""
+        s3 = S3Connector(s3_config)
+        pool_key = s3._get_pool_key("tenant_1")
+
+        parts = pool_key.split(":")
+        assert len(parts) == 3
+        assert parts[0] == "tenant_1"
+        assert parts[1] == "us-east-1"  # From s3_config fixture
+        assert len(parts[2]) == 8  # MD5 hash, truncated to 8 chars

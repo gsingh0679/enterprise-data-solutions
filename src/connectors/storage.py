@@ -114,11 +114,35 @@ class StorageConnector(Connector):
         """
         pass  # pragma: no cover
 
+    def _get_pool_key(self, tenant_id: str) -> str:
+        """Generate unique pool key including tenant, region, and credentials.
+
+        Composite key prevents collision when same tenant uses different
+        regions or credential versions (e.g., credential rotation).
+
+        Args:
+            tenant_id: Tenant identifier.
+
+        Returns:
+            Composite pool key: "tenant_id:region:cred_hash"
+        """
+        import hashlib
+        import json
+
+        region = self._config.metadata.get("region", "default")
+
+        creds_str = json.dumps(self._config.credentials, sort_keys=True)
+        creds_hash = hashlib.md5(creds_str.encode()).hexdigest()[:8]
+
+        pool_key = f"{tenant_id}:{region}:{creds_hash}"
+        return pool_key
+
     def _get_client(self, tenant_id: str) -> object:
         """Get or create client for tenant (connection pooling).
 
         Implements per-tenant client caching to avoid repeated
-        initialization. Subclasses should call this in their connect().
+        initialization. Uses composite key (tenant + region + credentials)
+        to prevent collisions during credential rotation.
 
         Args:
             tenant_id: Tenant identifier for isolation.
@@ -126,10 +150,11 @@ class StorageConnector(Connector):
         Returns:
             Cloud client for the tenant.
         """
-        if tenant_id not in self._client_pool:
-            logger.debug(f"Creating new client for tenant: {tenant_id}")
-            self._client_pool[tenant_id] = self._create_client(tenant_id)
-        return self._client_pool[tenant_id]
+        pool_key = self._get_pool_key(tenant_id)
+        if pool_key not in self._client_pool:
+            logger.debug(f"Creating new client for tenant: {tenant_id}, key: {pool_key}")
+            self._client_pool[pool_key] = self._create_client(tenant_id)
+        return self._client_pool[pool_key]
 
     @abstractmethod
     def _create_client(self, tenant_id: str) -> object:
