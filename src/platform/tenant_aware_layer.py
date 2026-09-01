@@ -585,6 +585,7 @@ class TenantAwareRouter:
             tenant_id=tenant_id,
             details={"resource": resource},
             status="FAILURE",
+            error_message=f"Access denied to resource: {resource}",
         )
         raise TenantAccessError(
             f"Access denied to {resource}",
