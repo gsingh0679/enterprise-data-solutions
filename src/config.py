@@ -17,6 +17,69 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
+class AuditConfig:
+    """Immutable audit configuration for compliance logging.
+
+    This dataclass holds configuration for the audit logging service used for
+    compliance tracking (GDPR, PCI-DSS, SOX).
+
+    Attributes:
+        enabled (bool): Enable/disable audit logging. Defaults to True.
+        retention_days (int): Number of days to retain audit events (Phase 2).
+            None means indefinite retention. Defaults to None.
+        log_to_file (bool): Persist audit events to file (Phase 2). Defaults to False.
+
+    Raises:
+        ValueError: If validation fails during initialization.
+    """
+
+    enabled: bool = True
+    retention_days: Optional[int] = None
+    log_to_file: bool = False
+
+    def __post_init__(self) -> None:
+        """Validate configuration after initialization.
+
+        Raises:
+            ValueError: If any field fails validation.
+        """
+        self.validate()
+
+    def validate(self) -> None:
+        """Validate configuration invariants.
+
+        Raises:
+            ValueError: If enabled is not bool, or retention_days is invalid.
+        """
+        if not isinstance(self.enabled, bool):
+            raise ValueError(
+                f"enabled must be bool, got {type(self.enabled).__name__}"
+            )
+
+        if not isinstance(self.log_to_file, bool):
+            raise ValueError(
+                f"log_to_file must be bool, got {type(self.log_to_file).__name__}"
+            )
+
+        if self.retention_days is not None:
+            if not isinstance(self.retention_days, int):
+                raise ValueError(
+                    f"retention_days must be int or None, "
+                    f"got {type(self.retention_days).__name__}"
+                )
+            if self.retention_days < 0:
+                raise ValueError(
+                    f"retention_days must be non-negative, "
+                    f"got {self.retention_days}"
+                )
+
+        logger.debug(
+            f"AuditConfig validated: enabled={self.enabled}, "
+            f"retention_days={self.retention_days}, log_to_file={self.log_to_file}"
+        )
+
+
+@dataclass(frozen=True)
 class VaultConfig:
     """Immutable vault configuration for token storage.
 
@@ -88,6 +151,8 @@ class PlatformConfig:
         storage_path (str): Path to data storage directory. Defaults to "./data".
         vault_config (VaultConfig): Vault configuration for token storage.
             Defaults to MockVault provider with no TTL.
+        audit_config (AuditConfig): Audit configuration for compliance logging.
+            Defaults to enabled with indefinite retention.
 
     Raises:
         ValueError: If validation fails during initialization.
@@ -96,15 +161,18 @@ class PlatformConfig:
     app_env: str = "local"
     storage_path: str = "./data"
     vault_config: VaultConfig = None  # type: ignore
+    audit_config: AuditConfig = None  # type: ignore
 
     def __post_init__(self) -> None:
-        """Set default VaultConfig and validate configuration.
+        """Set default VaultConfig and AuditConfig, then validate.
 
         Raises:
             ValueError: If any field fails validation.
         """
         if self.vault_config is None:
             object.__setattr__(self, "vault_config", VaultConfig())
+        if self.audit_config is None:
+            object.__setattr__(self, "audit_config", AuditConfig())
         self.validate()
 
     def validate(self) -> None:
@@ -133,6 +201,12 @@ class PlatformConfig:
                 f"got {type(self.vault_config).__name__}"
             )
 
+        if not isinstance(self.audit_config, AuditConfig):
+            raise ValueError(
+                f"audit_config must be AuditConfig instance, "
+                f"got {type(self.audit_config).__name__}"
+            )
+
         # Validate app_env contains only alphanumeric and underscore
         if not all(c.isalnum() or c == "_" for c in self.app_env):
             raise ValueError(
@@ -143,7 +217,8 @@ class PlatformConfig:
         logger.info(
             f"Configuration validated: app_env={self.app_env}, "
             f"storage_path={self.storage_path}, "
-            f"vault_provider={self.vault_config.provider}"
+            f"vault_provider={self.vault_config.provider}, "
+            f"audit_enabled={self.audit_config.enabled}"
         )
 
 
