@@ -686,3 +686,55 @@ class TestCompleteDataflow:
             assert "tenant_1" in router._connector_pool
             assert "tenant_2" in router._connector_pool
             assert router._connector_pool["tenant_1"]["s3"] is not router._connector_pool["tenant_2"]["s3"]
+
+
+class TestTenantValidation:
+    """Test tenant ID validation and authorization."""
+
+    def test_empty_tenant_id_rejected(self, router, s3_config):
+        """Test empty tenant_id is rejected."""
+        with pytest.raises(TenantAccessError) as exc_info:
+            router.get_connector("s3", "", s3_config)
+        assert "required" in str(exc_info.value).lower()
+
+    def test_none_tenant_id_rejected(self, router, s3_config):
+        """Test None tenant_id is rejected."""
+        with pytest.raises(TenantAccessError):
+            router.get_connector("s3", None, s3_config)
+
+    def test_non_string_tenant_id_rejected(self, router, s3_config):
+        """Test non-string tenant_id is rejected."""
+        with pytest.raises(TenantAccessError) as exc_info:
+            router.get_connector("s3", 12345, s3_config)
+        assert "string" in str(exc_info.value).lower()
+
+    def test_tenant_id_with_path_traversal_rejected(self, router, s3_config):
+        """Test tenant_id with path traversal characters rejected."""
+        with pytest.raises(TenantAccessError) as exc_info:
+            router.get_connector("s3", "../admin", s3_config)
+        assert ".." in str(exc_info.value) or "invalid" in str(exc_info.value).lower()
+
+    def test_tenant_id_with_slash_rejected(self, router, s3_config):
+        """Test tenant_id with slash characters rejected."""
+        with pytest.raises(TenantAccessError) as exc_info:
+            router.get_connector("s3", "tenant/admin", s3_config)
+        assert "/" in str(exc_info.value) or "invalid" in str(exc_info.value).lower()
+
+    def test_tenant_id_with_backslash_rejected(self, router, s3_config):
+        """Test tenant_id with backslash characters rejected."""
+        with pytest.raises(TenantAccessError) as exc_info:
+            router.get_connector("s3", "tenant\\admin", s3_config)
+        assert "\\" in str(exc_info.value) or "invalid" in str(exc_info.value).lower()
+
+    def test_tenant_id_too_long_rejected(self, router, s3_config):
+        """Test tenant_id longer than 255 chars rejected."""
+        long_tenant_id = "x" * 256
+        with pytest.raises(TenantAccessError) as exc_info:
+            router.get_connector("s3", long_tenant_id, s3_config)
+        assert "too long" in str(exc_info.value).lower() or "255" in str(exc_info.value)
+
+    def test_valid_tenant_id_accepted(self, router, s3_config):
+        """Test valid tenant_id is accepted."""
+        with patch("src.tenant_aware_layer.S3Connector"):
+            # Should not raise
+            router.get_connector("s3", "tenant-123_valid", s3_config)

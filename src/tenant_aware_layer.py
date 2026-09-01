@@ -326,6 +326,24 @@ class TenantAwareRouter:
                 tenant_id=tenant_id,
             )
 
+        if not isinstance(tenant_id, str):
+            raise TenantAccessError(
+                f"tenant_id must be string, got {type(tenant_id).__name__}",
+                tenant_id=tenant_id,
+            )
+
+        if len(tenant_id) > 255:
+            raise TenantAccessError(
+                f"tenant_id too long: {len(tenant_id)} > 255",
+                tenant_id=tenant_id,
+            )
+
+        if any(char in tenant_id for char in ['/', '\\', '..', '\0']):
+            raise TenantAccessError(
+                f"tenant_id contains invalid characters: {tenant_id!r}",
+                tenant_id=tenant_id,
+            )
+
         # Initialize ACLs for tenant if needed
         if tenant_id not in self._tenant_acls:
             self._tenant_acls[tenant_id] = {resource}
