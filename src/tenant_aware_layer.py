@@ -321,24 +321,52 @@ class TenantAwareRouter:
             TenantAccessError: If access denied.
         """
         if not tenant_id:
+            self._audit_log.log_event(
+                action="TENANT_ACCESS_DENIED",
+                user="system",
+                tenant_id=tenant_id or "UNKNOWN",
+                details={"resource": resource, "reason": "empty_tenant_id"},
+                status="FAILURE",
+            )
             raise TenantAccessError(
                 "tenant_id required",
                 tenant_id=tenant_id,
             )
 
         if not isinstance(tenant_id, str):
+            self._audit_log.log_event(
+                action="TENANT_ACCESS_DENIED",
+                user="system",
+                tenant_id="INVALID_TYPE",
+                details={"resource": resource, "reason": "invalid_type"},
+                status="FAILURE",
+            )
             raise TenantAccessError(
                 f"tenant_id must be string, got {type(tenant_id).__name__}",
                 tenant_id=tenant_id,
             )
 
         if len(tenant_id) > 255:
+            self._audit_log.log_event(
+                action="TENANT_ACCESS_DENIED",
+                user="system",
+                tenant_id=tenant_id,
+                details={"resource": resource, "reason": "tenant_id_too_long"},
+                status="FAILURE",
+            )
             raise TenantAccessError(
                 f"tenant_id too long: {len(tenant_id)} > 255",
                 tenant_id=tenant_id,
             )
 
         if any(char in tenant_id for char in ['/', '\\', '..', '\0']):
+            self._audit_log.log_event(
+                action="TENANT_ACCESS_DENIED",
+                user="system",
+                tenant_id=tenant_id,
+                details={"resource": resource, "reason": "invalid_characters"},
+                status="FAILURE",
+            )
             raise TenantAccessError(
                 f"tenant_id contains invalid characters: {tenant_id!r}",
                 tenant_id=tenant_id,
