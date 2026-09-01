@@ -738,3 +738,91 @@ class TestTenantValidation:
         with patch("src.tenant_aware_layer.S3Connector"):
             # Should not raise
             router.get_connector("s3", "tenant-123_valid", s3_config)
+
+
+class TestAccessControl:
+    """Test access control logic (ACL checking)."""
+
+    def test_access_granted_with_exact_match(self, router):
+        """Exact resource match grants access."""
+        router.add_tenant("tenant_1", {
+            "name": "Tenant 1",
+            "allowed_resources": ["s3://bucket1/file.txt"]
+        })
+
+        assert router.validate_tenant_access("tenant_1", "s3://bucket1/file.txt")
+
+    def test_access_denied_resource_not_in_list(self, router):
+        """Resource not in allowed list denies access."""
+        router.add_tenant("tenant_1", {
+            "name": "Tenant 1",
+            "allowed_resources": ["s3://bucket1/*"]
+        })
+
+        with pytest.raises(TenantAccessError) as exc_info:
+            router.validate_tenant_access("tenant_1", "s3://bucket2/file.txt")
+        assert "Access denied" in str(exc_info.value)
+
+    def test_access_with_wildcard_pattern(self, router):
+        """Wildcard patterns grant access."""
+        router.add_tenant("tenant_1", {
+            "name": "Tenant 1",
+            "allowed_resources": ["s3://bucket1/*", "postgresql:table_*"]
+        })
+
+        assert router.validate_tenant_access("tenant_1", "s3://bucket1/file.txt")
+        assert router.validate_tenant_access("tenant_1", "s3://bucket1/folder/deep.txt")
+        assert router.validate_tenant_access("tenant_1", "postgresql:table_users")
+
+        with pytest.raises(TenantAccessError):
+            router.validate_tenant_access("tenant_1", "s3://bucket2/file.txt")
+
+    def test_access_with_regex_pattern(self, router):
+        """Regex patterns grant access."""
+        router.add_tenant("tenant_1", {
+            "name": "Tenant 1",
+            "allowed_resources": ["regex:s3://bucket[0-9]+/.*"]
+        })
+
+        assert router.validate_tenant_access("tenant_1", "s3://bucket123/file.txt")
+        assert router.validate_tenant_access("tenant_1", "s3://bucket1/any/path.txt")
+
+        with pytest.raises(TenantAccessError):
+            router.validate_tenant_access("tenant_1", "s3://bucketA/file.txt")
+
+    def test_access_denied_for_disabled_tenant(self, router):
+        """Disabled tenant denied access."""
+        router.add_tenant("tenant_1", {
+            "name": "Tenant 1",
+            "enabled": False,
+            "allowed_resources": ["s3://*"]
+        })
+
+        with pytest.raises(TenantAccessError) as exc_info:
+            router.validate_tenant_access("tenant_1", "s3://bucket/file.txt")
+        assert "disabled" in str(exc_info.value).lower()
+
+    def test_access_allowed_no_restrictions(self, router):
+        """Tenant with no allowed_resources list has full access."""
+        router.add_tenant("tenant_1", {
+            "name": "Tenant 1"
+            # No allowed_resources = allow all
+        })
+
+        assert router.validate_tenant_access("tenant_1", "s3://any/thing")
+        assert router.validate_tenant_access("tenant_1", "postgresql:any_table")
+        assert router.validate_tenant_access("tenant_1", "kafka:any_topic")
+
+    def test_add_tenant_validates_config(self, router):
+        """add_tenant validates configuration."""
+        with pytest.raises(ValidationError):
+            router.add_tenant("tenant_1", {})  # Missing required "name" field
+
+    def test_add_tenant_validates_connector_types(self, router):
+        """add_tenant validates connector types."""
+        with pytest.raises(ValidationError) as exc_info:
+            router.add_tenant("tenant_1", {
+                "name": "Tenant 1",
+                "allowed_connector_types": ["invalid_type"]
+            })
+        assert "Unknown connector type" in str(exc_info.value)

@@ -34,6 +34,7 @@ class TenantAwareRouter:
     _instance: Optional["TenantAwareRouter"] = None
     _connector_pool: Dict[str, Dict[str, Connector]] = {}
     _tenant_acls: Dict[str, set] = {}
+    _tenant_configs: Dict[str, Dict[str, Any]] = {}
 
     CONNECTOR_CLASSES = {
         "s3": S3Connector,
@@ -246,11 +247,14 @@ class TenantAwareRouter:
     def validate_tenant_access(
         self, tenant_id: str, resource: str
     ) -> bool:
-        """Validate tenant has access to resource.
+        """Validate tenant has access to resource via ACL checking.
+
+        Checks if tenant is configured and allowed to access resource.
+        Supports exact match, wildcard, and regex patterns.
 
         Args:
             tenant_id: Tenant identifier.
-            resource: Resource identifier (connector type or path).
+            resource: Resource identifier (e.g., "s3://bucket/file", "postgresql:table_name").
 
         Returns:
             True if access allowed.
@@ -258,7 +262,55 @@ class TenantAwareRouter:
         Raises:
             TenantAccessError: If access denied.
         """
-        return self._validate_tenant_access(tenant_id, resource)
+        if not tenant_id or not isinstance(tenant_id, str):
+            raise TenantAccessError(
+                f"Invalid tenant_id: {tenant_id}",
+                tenant_id=tenant_id,
+            )
+
+        if tenant_id not in self._tenant_configs:
+            logger.debug(f"Tenant {tenant_id} not in configs, allowing access (backward compat)")
+            return True
+
+        tenant_config = self._tenant_configs[tenant_id]
+
+        if not tenant_config.get("enabled", True):
+            self._audit_log.log_event(
+                action="TENANT_ACCESS_DENIED",
+                user="system",
+                tenant_id=tenant_id,
+                details={"resource": resource, "reason": "tenant_disabled"},
+                status="FAILURE",
+                error_message=f"Tenant disabled: {tenant_id}",
+            )
+            raise TenantAccessError(
+                f"Tenant disabled: {tenant_id}",
+                tenant_id=tenant_id,
+            )
+
+        allowed_resources = tenant_config.get("allowed_resources", [])
+
+        if not allowed_resources:
+            logger.debug(f"Tenant {tenant_id} has no restrictions (full access)")
+            return True
+
+        for pattern in allowed_resources:
+            if self._resource_matches(pattern, resource):
+                logger.debug(f"Access granted: {tenant_id} -> {resource}")
+                return True
+
+        self._audit_log.log_event(
+            action="TENANT_ACCESS_DENIED",
+            user="system",
+            tenant_id=tenant_id,
+            details={"resource": resource, "allowed_patterns": allowed_resources},
+            status="FAILURE",
+            error_message=f"Resource not in allowed list",
+        )
+        raise TenantAccessError(
+            f"Access denied to {resource} (allowed: {allowed_resources})",
+            tenant_id=tenant_id,
+        )
 
     def get_tenant_config(self, tenant_id: str) -> Dict[str, Any]:
         """Get tenant-specific configuration.
@@ -397,6 +449,87 @@ class TenantAwareRouter:
             f"Access denied to {resource}",
             tenant_id=tenant_id,
         )
+
+    def add_tenant(self, tenant_id: str, config: Dict[str, Any]) -> None:
+        """Add tenant with access control configuration.
+
+        Args:
+            tenant_id: Tenant identifier.
+            config: Tenant configuration dict with keys:
+                - name (required): Tenant display name
+                - enabled (optional, default True): Enable/disable tenant
+                - allowed_resources (optional): List of allowed resource patterns
+                - allowed_connector_types (optional): List of allowed connector types
+
+        Raises:
+            ValidationError: If tenant_id or config invalid.
+        """
+        if not tenant_id or not isinstance(tenant_id, str):
+            raise ValidationError(
+                f"Invalid tenant_id: {tenant_id}",
+                tenant_id=tenant_id,
+            )
+
+        if not isinstance(config, dict):
+            raise ValidationError(
+                f"Config must be dict, got {type(config).__name__}",
+                tenant_id=tenant_id,
+            )
+
+        required_fields = ["name"]
+        for field in required_fields:
+            if field not in config:
+                raise ValidationError(
+                    f"Missing required field: {field}",
+                    tenant_id=tenant_id,
+                )
+
+        allowed = config.get("allowed_resources", [])
+        if allowed and not isinstance(allowed, list):
+            raise ValidationError(
+                f"allowed_resources must be list, got {type(allowed).__name__}",
+                tenant_id=tenant_id,
+            )
+
+        allowed_types = config.get("allowed_connector_types", [])
+        if allowed_types:
+            valid_types = {"s3", "gcs", "adls", "kafka", "pubsub",
+                          "postgresql", "mongodb", "snowflake"}
+            for ct in allowed_types:
+                if ct not in valid_types:
+                    raise ValidationError(
+                        f"Unknown connector type: {ct}",
+                        tenant_id=tenant_id,
+                    )
+
+        self._tenant_configs[tenant_id] = config
+        logger.info(f"Added tenant: {tenant_id} with config: {config.get('name')}")
+
+    def _resource_matches(self, pattern: str, resource: str) -> bool:
+        """Check if resource matches pattern (supports wildcards and regex).
+
+        Args:
+            pattern: Pattern to match (supports wildcards and regex:)
+            resource: Resource to check
+
+        Returns:
+            True if resource matches pattern.
+        """
+        import fnmatch
+        import re
+
+        if pattern == resource:
+            return True
+
+        if fnmatch.fnmatch(resource, pattern):
+            return True
+
+        if pattern.startswith("regex:"):
+            regex = pattern[6:]
+            if re.match(regex, resource):
+                return True
+
+        return False
 
     def _validate_connector_type(self, connector_type: str) -> None:
         """Validate connector type is supported.
