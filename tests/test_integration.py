@@ -7,8 +7,8 @@ as a complete pipeline: config → schema → validation → circuit breaker.
 import pytest
 
 from src.config import ConfigManager
-from src.quality_validator import CircuitBreaker, QualityValidator
-from src.schema_registry import Schema, SchemaRegistry
+from src.data_ops.quality_validator import CircuitBreaker, QualityValidator
+from src.data_ops.schema_registry import Schema, SchemaRegistry
 
 
 class TestBasicPipeline:

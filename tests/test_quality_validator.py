@@ -7,7 +7,7 @@ Tests cover all classes and methods with 95%+ coverage:
 """
 
 import pytest
-from src.quality_validator import (
+from src.data_ops.quality_validator import (
     BatchValidationResult,
     CircuitBreaker,
     QualityValidator,

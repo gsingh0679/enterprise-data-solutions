@@ -13,12 +13,12 @@ import pytest
 from datetime import datetime, timedelta
 from uuid import uuid4
 
-from src.metrics_collector import (
+from src.platform.metrics_collector import (
     Metric,
     MetricsCollector,
     MetricName,
 )
-from src.audit_log import AuditLog
+from src.compliance.audit_log import AuditLog
 
 
 class TestMetric:

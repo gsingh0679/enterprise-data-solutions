@@ -8,7 +8,7 @@ import pytest
 import logging
 from dataclasses import FrozenInstanceError
 
-from src.schema_registry import Schema, SchemaRegistry
+from src.data_ops.schema_registry import Schema, SchemaRegistry
 
 
 class TestSchema:

@@ -9,12 +9,12 @@ import logging
 import pytest
 from typing import Any, Dict
 
-from src.masking_engine import (
+from src.data_ops.masking_engine import (
     FieldMaskingConfig,
     MaskingEngine,
     MaskingStrategy,
 )
-from src.schema_registry import Schema, SchemaRegistry
+from src.data_ops.schema_registry import Schema, SchemaRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -843,7 +843,7 @@ class TestExampleFunction:
 
     def test_example_banking_masking(self) -> None:
         """Test the example banking masking function."""
-        from src.masking_engine import example_banking_masking
+        from src.data_ops.masking_engine import example_banking_masking
 
         original, masked, token_count = example_banking_masking()
 

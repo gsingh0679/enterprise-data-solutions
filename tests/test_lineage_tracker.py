@@ -13,12 +13,12 @@ import pytest
 from datetime import datetime
 from uuid import uuid4
 
-from src.lineage_tracker import (
+from src.compliance.lineage_tracker import (
     LineageEvent,
     LineageTracker,
     TransformationType,
 )
-from src.audit_log import AuditLog
+from src.compliance.audit_log import AuditLog
 
 
 class TestLineageEvent:

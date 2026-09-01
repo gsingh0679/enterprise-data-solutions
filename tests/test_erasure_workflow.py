@@ -12,14 +12,14 @@ import pytest
 from datetime import datetime, timedelta
 from uuid import uuid4
 
-from src.erasure_workflow import (
+from src.compliance.erasure_workflow import (
     ErasureRequest,
     ErasureWorkflow,
     ErasureReason,
     ErasureStatus,
 )
-from src.vault import MockVault
-from src.audit_log import AuditLog
+from src.platform.vault import MockVault
+from src.compliance.audit_log import AuditLog
 
 
 class TestErasureRequest:

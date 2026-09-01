@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from time import sleep
 from unittest.mock import patch
 
-from src.vault import VaultProvider, MockVault
+from src.platform.vault import VaultProvider, MockVault
 
 
 class TestVaultProviderInterface:

@@ -12,9 +12,9 @@ This module provides reusable pytest fixtures for:
 import pytest
 
 from src.config import ConfigManager, PlatformConfig
-from src.masking_engine import MaskingEngine, MaskingStrategy
-from src.quality_validator import CircuitBreaker, QualityValidator
-from src.schema_registry import Schema, SchemaRegistry
+from src.data_ops.masking_engine import MaskingEngine, MaskingStrategy
+from src.data_ops.quality_validator import CircuitBreaker, QualityValidator
+from src.data_ops.schema_registry import Schema, SchemaRegistry
 
 
 @pytest.fixture

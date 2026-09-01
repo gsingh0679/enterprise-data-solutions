@@ -7,7 +7,7 @@ singleton behavior, and compliance scenarios.
 import pytest
 from datetime import datetime, timedelta
 
-from src.audit_log import AuditEvent, AuditLog
+from src.compliance.audit_log import AuditEvent, AuditLog
 
 
 class TestAuditEventInitialization:
