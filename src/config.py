@@ -9,7 +9,7 @@ import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, Optional
 
 import yaml
 
@@ -136,6 +136,99 @@ class VaultConfig:
             f"VaultConfig validated: provider={self.provider}, "
             f"ttl_seconds={self.ttl_seconds}"
         )
+
+
+@dataclass(frozen=True)
+class ConnectorConfig:
+    """Immutable connector configuration.
+
+    This dataclass holds configuration for data connectors (storage, data sources,
+    databases). It supports multi-tenant isolation and provider-specific settings.
+
+    Attributes:
+        connector_type (str): Type of connector (e.g., "s3", "postgres", "kafka").
+        tenant_id (str): Tenant identifier for multi-tenant isolation.
+        credentials (Dict[str, Any]): Connector-specific credentials and secrets.
+        timeout_seconds (int): Connection timeout in seconds. Defaults to 30.
+        max_retries (int): Maximum retry attempts on failure. Defaults to 3.
+        metadata (Dict[str, Any]): Custom connector-specific metadata. Defaults to {}.
+
+    Raises:
+        ValueError: If validation fails during initialization.
+    """
+
+    connector_type: str
+    tenant_id: str
+    credentials: Dict[str, Any]
+    timeout_seconds: int = 30
+    max_retries: int = 3
+    metadata: Dict[str, Any] = None  # type: ignore
+
+    def __post_init__(self) -> None:
+        """Validate configuration after initialization.
+
+        Raises:
+            ValueError: If any field fails validation.
+        """
+        if self.metadata is None:
+            object.__setattr__(self, "metadata", {})
+        self.validate()
+
+    def validate(self) -> None:
+        """Validate configuration invariants.
+
+        Raises:
+            ValueError: If any field fails validation.
+        """
+        if not isinstance(self.connector_type, str) or not self.connector_type:
+            raise ValueError(
+                f"connector_type must be a non-empty string, "
+                f"got {self.connector_type!r}"
+            )
+
+        if not isinstance(self.tenant_id, str) or not self.tenant_id:
+            raise ValueError(
+                f"tenant_id must be a non-empty string, got {self.tenant_id!r}"
+            )
+
+        if not isinstance(self.credentials, dict):
+            raise ValueError(
+                f"credentials must be dict, got {type(self.credentials).__name__}"
+            )
+
+        if not isinstance(self.timeout_seconds, int) or self.timeout_seconds <= 0:
+            raise ValueError(
+                f"timeout_seconds must be positive int, "
+                f"got {self.timeout_seconds}"
+            )
+
+        if not isinstance(self.max_retries, int) or self.max_retries < 0:
+            raise ValueError(
+                f"max_retries must be non-negative int, got {self.max_retries}"
+            )
+
+        if not isinstance(self.metadata, dict):
+            raise ValueError(
+                f"metadata must be dict, got {type(self.metadata).__name__}"
+            )
+
+        logger.debug(
+            f"ConnectorConfig validated: connector_type={self.connector_type}, "
+            f"tenant_id={self.tenant_id}, timeout_seconds={self.timeout_seconds}, "
+            f"max_retries={self.max_retries}"
+        )
+
+    def get_credential(self, key: str, default: Any = None) -> Any:
+        """Retrieve a credential value by key.
+
+        Args:
+            key: Credential key to retrieve.
+            default: Default value if key not found.
+
+        Returns:
+            The credential value or default if not found.
+        """
+        return self.credentials.get(key, default)
 
 
 @dataclass(frozen=True)
