@@ -90,3 +90,13 @@ class TenantAccessError(ConnectorError):
     """
 
     pass
+
+
+class PipelineError(ConnectorError):
+    """Raised when a multi-connector pipeline operation fails.
+
+    Covers failures in atomic_pipeline operations, transaction failures,
+    and cross-connector coordination errors.
+    """
+
+    pass

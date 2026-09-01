@@ -826,3 +826,97 @@ class TestAccessControl:
                 "allowed_connector_types": ["invalid_type"]
             })
         assert "Unknown connector type" in str(exc_info.value)
+
+
+class TestAtomicPipeline:
+    """Test cross-connector atomic pipeline execution."""
+
+    def test_atomic_pipeline_empty_operations(self, router):
+        """Empty operations list returns success."""
+        result = router.atomic_pipeline("tenant_1", [])
+        assert result["status"] == "success"
+        assert "results" in result
+        assert result["results"] == []
+
+    def test_atomic_pipeline_single_read_operation(self, router):
+        """Single read operation succeeds."""
+        with patch.object(router, "get_connector") as mock_get:
+            mock_s3 = MagicMock()
+            mock_s3.read.return_value = b"test_data"
+            mock_get.return_value = mock_s3
+
+            operations = [
+                {
+                    "connector_type": "s3",
+                    "operation": "read",
+                    "query": "bucket/file.txt"
+                }
+            ]
+
+            result = router.atomic_pipeline("tenant_1", operations)
+
+            assert result["status"] == "success"
+            assert result["steps_executed"] == 1
+            assert len(result["results"]) == 1
+            assert result["results"][0]["status"] == "success"
+            assert result["results"][0]["data"] == b"test_data"
+
+    def test_atomic_pipeline_read_then_write(self, router):
+        """Read from one connector, write to another (cross-connector)."""
+        with patch.object(router, "get_connector") as mock_get:
+            mock_s3 = MagicMock()
+            mock_s3.read.return_value = b'{"id": 1, "name": "alice"}'
+
+            mock_pg = MagicMock()
+            mock_pg.write.return_value = {"success": True}
+
+            # Return different connectors based on type
+            mock_get.side_effect = [mock_s3, mock_pg]
+
+            operations = [
+                {"connector_type": "s3", "operation": "read", "query": "bucket/file.json"},
+                {"connector_type": "postgresql", "operation": "write",
+                 "destination": "users", "data": {"id": 1}}
+            ]
+
+            result = router.atomic_pipeline("tenant_1", operations)
+
+            assert result["status"] == "success"
+            assert result["steps_executed"] == 2
+            assert len(result["results"]) == 2
+            assert result["results"][0]["operation"] == "read"
+            assert result["results"][1]["operation"] == "write"
+
+    def test_atomic_pipeline_fails_on_invalid_operation(self, router):
+        """Invalid operation type raises error."""
+        from src.errors import ValidationError
+
+        operations = [
+            {"connector_type": "s3", "operation": "invalid_op"}
+        ]
+
+        with pytest.raises(ValidationError) as exc_info:
+            router.atomic_pipeline("tenant_1", operations)
+        assert "Unknown operation" in str(exc_info.value)
+
+    def test_atomic_pipeline_audit_logging_success(self, router):
+        """Successful pipeline logged to audit trail."""
+        with patch.object(router, "get_connector") as mock_get:
+            mock_s3 = MagicMock()
+            mock_s3.read.return_value = b"data"
+            mock_get.return_value = mock_s3
+
+            operations = [
+                {"connector_type": "s3", "operation": "read", "query": "bucket/file"}
+            ]
+
+            with patch.object(router._audit_log, "log_event") as mock_log:
+                result = router.atomic_pipeline("tenant_1", operations)
+
+                assert result["status"] == "success"
+                # Verify audit log was called
+                assert mock_log.called
+                # Check that success was logged
+                success_calls = [c for c in mock_log.call_args_list
+                               if "PIPELINE_SUCCESS" in str(c)]
+                assert len(success_calls) > 0

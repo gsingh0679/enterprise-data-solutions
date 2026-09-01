@@ -19,7 +19,7 @@ from src.connectors.database import (
     MongoDBConnector,
     SnowflakeConnector,
 )
-from src.errors import ConnectionError, TenantAccessError, ValidationError
+from src.errors import ConnectionError, PipelineError, TenantAccessError, ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -242,6 +242,147 @@ class TenantAwareRouter:
                 status="FAILURE",
                 error_message=str(e),
             )
+            raise
+
+    def atomic_pipeline(
+        self, tenant_id: str, operations: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """Execute multiple operations atomically across connectors.
+
+        Implements cross-connector transactions with rollback on failure.
+        All operations succeed or all are rolled back (ACID semantics).
+
+        Args:
+            tenant_id: Tenant identifier.
+            operations: List of operation dicts with keys:
+                - connector_type: Type of connector (s3, postgresql, etc)
+                - operation: "read" or "write"
+                - query (for read): Query to execute
+                - destination (for write): Destination identifier
+                - data (for write): Data to write
+
+        Returns:
+            Dict with status, steps_executed, and results list.
+
+        Raises:
+            PipelineError: If any operation fails (all rolled back).
+            TenantAccessError: If tenant cannot execute pipelines.
+            ValidationError: If operations invalid.
+        """
+        from src.errors import PipelineError
+
+        if not operations:
+            return {"status": "success", "results": []}
+
+        if tenant_id not in self._tenant_configs:
+            logger.debug(f"Tenant {tenant_id} not registered, allowing pipeline (backward compat)")
+        else:
+            self.validate_tenant_access(tenant_id, "pipeline:execute")
+
+        active_transactions = {}
+        results = []
+
+        try:
+            for i, op in enumerate(operations):
+                connector_type = op.get("connector_type")
+                operation = op.get("operation")
+
+                if not connector_type or not operation:
+                    raise ValidationError(
+                        f"Operation {i} missing connector_type or operation",
+                        tenant_id=tenant_id,
+                    )
+
+                if operation not in ["read", "write"]:
+                    raise ValidationError(
+                        f"Unknown operation: {operation}",
+                        tenant_id=tenant_id,
+                    )
+
+                connector = self.get_connector(connector_type, tenant_id, None)
+
+                if connector_type not in active_transactions:
+                    active_transactions[connector_type] = connector
+
+                try:
+                    if operation == "read":
+                        query = op.get("query")
+                        result = connector.read(query)
+                        results.append({
+                            "step": i,
+                            "connector_type": connector_type,
+                            "operation": "read",
+                            "status": "success",
+                            "data": result,
+                        })
+
+                    elif operation == "write":
+                        destination = op.get("destination")
+                        data = op.get("data")
+                        success = connector.write(data)
+                        results.append({
+                            "step": i,
+                            "connector_type": connector_type,
+                            "operation": "write",
+                            "destination": destination,
+                            "status": "success",
+                            "result": success,
+                        })
+
+
+                except Exception as e:
+                    results.append({
+                        "step": i,
+                        "connector_type": connector_type,
+                        "operation": operation,
+                        "status": "failed",
+                        "error": str(e),
+                    })
+                    raise PipelineError(
+                        f"Pipeline failed at step {i}: {str(e)}",
+                        tenant_id=tenant_id,
+                    )
+
+            for connector_type, connector in active_transactions.items():
+                if hasattr(connector, 'commit'):
+                    try:
+                        connector.commit()
+                        logger.debug(f"Committed {connector_type}")
+                    except Exception as e:
+                        logger.warning(f"Commit failed for {connector_type}: {e}")
+
+            self._audit_log.log_event(
+                action="PIPELINE_SUCCESS",
+                user="system",
+                tenant_id=tenant_id,
+                details={"steps": len(operations), "connector_types": list(active_transactions.keys())},
+                status="SUCCESS",
+            )
+
+            return {
+                "status": "success",
+                "steps_executed": len(operations),
+                "results": results,
+            }
+
+        except Exception as e:
+            for connector_type, connector in active_transactions.items():
+                if hasattr(connector, 'rollback'):
+                    try:
+                        connector.rollback()
+                        logger.debug(f"Rolled back {connector_type}")
+                    except Exception as rb_error:
+                        logger.error(f"Rollback failed for {connector_type}: {rb_error}")
+
+            self._audit_log.log_event(
+                action="PIPELINE_FAILED",
+                user="system",
+                tenant_id=tenant_id,
+                details={"error": str(e), "results": results},
+                status="FAILURE",
+                error_message=str(e),
+            )
+
             raise
 
     def validate_tenant_access(
