@@ -214,36 +214,33 @@ class TestReadWrite:
 class TestConnectionLifecycle:
     """Test connection lifecycle management."""
 
-    def test_close_tenant_connections(self, router, s3_config):
+    def test_close_tenant_connections(self, router, s3_config, mock_s3_connector):
         """Test close_tenant_connections closes all connectors."""
-        with patch("src.platform.tenant_aware_layer.S3Connector") as mock_s3_class:
-            mock_connector = MagicMock()
-            mock_s3_class.return_value = mock_connector
+        mock_s3_class = MagicMock(return_value=mock_s3_connector)
+        router.CONNECTOR_CLASSES["s3"] = mock_s3_class
 
-            router.get_connector("s3", "tenant_1", s3_config)
-            assert "tenant_1" in router._connector_pool
+        router.get_connector("s3", "tenant_1", s3_config)
+        assert "tenant_1" in router._connector_pool
 
-            router.close_tenant_connections("tenant_1")
-            mock_connector.close.assert_called_once()
-            assert "tenant_1" not in router._connector_pool
+        router.close_tenant_connections("tenant_1")
+        mock_s3_connector.close.assert_called_once()
+        assert "tenant_1" not in router._connector_pool
 
-    def test_close_all_connections(self, router, s3_config, postgres_config):
+    def test_close_all_connections(self, router, s3_config, postgres_config, mock_s3_connector, mock_postgres_connector):
         """Test close_all_connections closes all tenant connections."""
-        with patch("src.platform.tenant_aware_layer.S3Connector") as mock_s3_class:
-            with patch("src.platform.tenant_aware_layer.PostgreSQLConnector") as mock_pg_class:
-                mock_s3 = MagicMock()
-                mock_pg = MagicMock()
-                mock_s3_class.return_value = mock_s3
-                mock_pg_class.return_value = mock_pg
+        mock_s3_class = MagicMock(return_value=mock_s3_connector)
+        mock_pg_class = MagicMock(return_value=mock_postgres_connector)
+        router.CONNECTOR_CLASSES["s3"] = mock_s3_class
+        router.CONNECTOR_CLASSES["postgresql"] = mock_pg_class
 
-                router.get_connector("s3", "tenant_1", s3_config)
-                router.get_connector("postgresql", "tenant_2", postgres_config)
+        router.get_connector("s3", "tenant_1", s3_config)
+        router.get_connector("postgresql", "tenant_2", postgres_config)
 
-                router.close_all_connections()
+        router.close_all_connections()
 
-                mock_s3.close.assert_called_once()
-                mock_pg.close.assert_called_once()
-                assert len(router._connector_pool) == 0
+        mock_s3_connector.close.assert_called_once()
+        mock_postgres_connector.close.assert_called_once()
+        assert len(router._connector_pool) == 0
 
 
 class TestGetTenantConfig:
@@ -539,18 +536,16 @@ class TestPoolManagement:
             router.get_connector("s3", "tenant_3", config3)
             assert len(router._connector_pool) == 3
 
-    def test_pool_cleanup_removes_tenant_data(self, router, s3_config):
+    def test_pool_cleanup_removes_tenant_data(self, router, s3_config, mock_s3_connector):
         """Test cleanup removes tenant from pool."""
-        with patch("src.platform.tenant_aware_layer.S3Connector") as mock_s3:
-            mock_conn = MagicMock()
-            mock_s3.return_value = mock_conn
+        mock_s3_class = MagicMock(return_value=mock_s3_connector)
+        router.CONNECTOR_CLASSES["s3"] = mock_s3_class
 
-            router.get_connector("s3", "tenant_1", s3_config)
-            assert "tenant_1" in router._connector_pool
+        router.get_connector("s3", "tenant_1", s3_config)
+        assert "tenant_1" in router._connector_pool
 
-            router.close_tenant_connections("tenant_1")
-            assert "tenant_1" not in router._connector_pool
-            mock_conn.close.assert_called_once()
+        router.close_tenant_connections("tenant_1")
+        assert "tenant_1" not in router._connector_pool
 
     def test_pool_cleanup_resilient_to_close_errors(self, router, s3_config):
         """Test pool cleanup continues despite close errors."""
