@@ -6,5 +6,13 @@ and databases.
 """
 
 from src.connectors.base import Connector
+from src.connectors.storage import StorageConnector, S3Connector, GCSConnector, ADLSConnector
+from src.connectors.database import DatabaseConnector, PostgreSQLConnector, MongoDBConnector, SnowflakeConnector
+from src.connectors.data_source import DataSourceConnector, KafkaConnector, PubSubConnector
 
-__all__ = ["Connector"]
+__all__ = [
+    "Connector",
+    "StorageConnector", "S3Connector", "GCSConnector", "ADLSConnector",
+    "DatabaseConnector", "PostgreSQLConnector", "MongoDBConnector", "SnowflakeConnector",
+    "DataSourceConnector", "KafkaConnector", "PubSubConnector",
+]
